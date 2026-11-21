@@ -15,6 +15,9 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            # Stop on the first error so a failed build never reaches pm2 restart.
+            # Plain `set -e` (no pipefail): the login shell may be dash.
+            set -e
             cd /var/www/backend
             git pull origin main
             npm install

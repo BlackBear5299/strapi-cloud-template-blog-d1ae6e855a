@@ -17,15 +17,16 @@
       "required": true
     },
     "email": {
-      "type": "email",
-      "required": true
+      "type": "email"
     },
     "phone": {
       "type": "string"
     },
+    "service": {
+      "type": "string"
+    },
     "message": {
-      "type": "text",
-      "required": true
+      "type": "text"
     }
   }
 }
