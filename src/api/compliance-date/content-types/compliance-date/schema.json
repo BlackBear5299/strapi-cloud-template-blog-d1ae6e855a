@@ -1,0 +1,40 @@
+{
+  "kind": "collectionType",
+  "collectionName": "compliance_dates",
+  "info": {
+    "singularName": "compliance-date",
+    "pluralName": "compliance-dates",
+    "displayName": "Compliance Date",
+    "description": "Statutory due dates shown in the website's upcoming-deadlines panels"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "dueDate": {
+      "type": "date",
+      "required": true
+    },
+    "detail": {
+      "type": "text"
+    },
+    "tags": {
+      "type": "json"
+    },
+    "audience": {
+      "type": "enumeration",
+      "enum": ["business", "professional", "individual", "all"]
+    },
+    "sourceUrl": {
+      "type": "string"
+    },
+    "note": {
+      "type": "text"
+    }
+  }
+}

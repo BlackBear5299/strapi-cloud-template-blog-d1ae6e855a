@@ -6,7 +6,99 @@ const PUBLIC_PERMISSIONS: Record<string, string[]> = {
   'api::testimonial.testimonial': ['find', 'findOne'],
   'api::site-setting.site-setting': ['find'],
   'api::contact-message.contact-message': ['create'],
+  'api::compliance-date.compliance-date': ['find', 'findOne'],
 };
+
+/**
+ * Public self-registration is never wanted here (no site users exist), so it
+ * is switched off on every boot: the advanced "allow register" setting AND
+ * the Public role's register permission.
+ */
+async function disablePublicRegistration(strapi: Core.Strapi) {
+  const store = strapi.store({ type: 'plugin', name: 'users-permissions', key: 'advanced' });
+  const advanced = ((await store.get()) as Record<string, unknown> | null) ?? {};
+  if (advanced.allow_register !== false) {
+    await store.set({ value: { ...advanced, allow_register: false } });
+  }
+
+  const publicRole = await strapi
+    .query('plugin::users-permissions.role')
+    .findOne({ where: { type: 'public' } });
+  if (!publicRole) return;
+  await strapi.query('plugin::users-permissions.permission').deleteMany({
+    where: { action: 'plugin::users-permissions.auth.register', role: publicRole.id },
+  });
+}
+
+/**
+ * On-demand revalidation of the Next.js site. Configured from env so the
+ * shared secret never lives in git:
+ *   REVALIDATE_WEBHOOK_URL  e.g. https://www.carajnigoswami.com/api/revalidate
+ *   REVALIDATE_SECRET       sent as the x-revalidate-secret header
+ * Created or updated in place (by name) on every boot, then registered with
+ * the running webhook runner, which loaded the stored webhooks just before
+ * this bootstrap ran.
+ */
+const REVALIDATE_WEBHOOK_NAME = 'frontend-revalidate';
+const REVALIDATE_EVENTS = ['entry.publish', 'entry.unpublish', 'entry.update', 'entry.delete'];
+
+async function ensureRevalidateWebhook(strapi: Core.Strapi) {
+  const url = process.env.REVALIDATE_WEBHOOK_URL;
+  const secret = process.env.REVALIDATE_SECRET;
+  if (!url || !secret) {
+    strapi.log.warn('[revalidate] REVALIDATE_WEBHOOK_URL / REVALIDATE_SECRET not set; webhook not configured');
+    return;
+  }
+
+  const store = strapi.get('webhookStore');
+  const runner = strapi.get('webhookRunner');
+  const data = {
+    name: REVALIDATE_WEBHOOK_NAME,
+    url,
+    headers: { 'x-revalidate-secret': secret },
+    events: REVALIDATE_EVENTS,
+    isEnabled: true,
+  };
+
+  const existing = (await store.findWebhooks()).find(
+    (w: { name: string }) => w.name === REVALIDATE_WEBHOOK_NAME
+  );
+  if (existing) {
+    const updated = await store.updateWebhook(existing.id, data);
+    if (updated) runner.update(updated);
+  } else {
+    const created = await store.createWebhook(data);
+    runner.add(created);
+  }
+  strapi.log.info(`[revalidate] webhook '${REVALIDATE_WEBHOOK_NAME}' configured`);
+}
+
+/**
+ * Initial compliance calendar: every date the website had hard-coded in
+ * lib/deadlines.ts (AY 2026-27, supplied by Rajni). Seeded once, published,
+ * only when the collection is empty — edits in the admin are never undone.
+ * audience/sourceUrl are left empty: the source list never stated them.
+ */
+const COMPLIANCE_SEED = [
+  { dueDate: '2026-09-15', title: 'Advance tax — second instalment', detail: "45% of the year's liability, cumulative", tags: ['advance-tax', 'income-tax'] },
+  { dueDate: '2026-09-30', title: 'Tax audit report', detail: 'For taxpayers whose accounts require audit', tags: ['audit'] },
+  { dueDate: '2026-10-31', title: 'Income tax return — audit cases', detail: 'Where a tax audit report was required', tags: ['income-tax', 'audit'] },
+  { dueDate: '2026-12-15', title: 'Advance tax — third instalment', detail: "75% of the year's liability, cumulative", tags: ['advance-tax', 'income-tax'] },
+  { dueDate: '2026-12-31', title: 'Belated or revised return', detail: 'The last date to file for AY 2026-27 if the original deadline was missed', tags: ['income-tax'] },
+  { dueDate: '2027-03-15', title: 'Advance tax — final instalment', detail: "100% of the year's liability", tags: ['advance-tax', 'income-tax'] },
+];
+
+async function seedComplianceDates(strapi: Core.Strapi) {
+  const existing = await strapi.documents('api::compliance-date.compliance-date').findMany({ limit: 1 });
+  if (existing.length > 0) return;
+  for (const item of COMPLIANCE_SEED) {
+    await strapi.documents('api::compliance-date.compliance-date').create({
+      data: item,
+      status: 'published',
+    });
+  }
+  strapi.log.info(`[seed] created ${COMPLIANCE_SEED.length} compliance dates`);
+}
 
 async function setPublicPermissions(strapi: Core.Strapi) {
   const publicRole = await strapi
@@ -167,6 +259,9 @@ export default {
 
   async bootstrap({ strapi }: { strapi: Core.Strapi }) {
     await setPublicPermissions(strapi);
+    await disablePublicRegistration(strapi);
     await seedIfEmpty(strapi);
+    await seedComplianceDates(strapi);
+    await ensureRevalidateWebhook(strapi);
   },
 };

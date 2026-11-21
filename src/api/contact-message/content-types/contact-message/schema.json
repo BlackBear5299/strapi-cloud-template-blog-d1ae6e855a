@@ -20,7 +20,8 @@
       "type": "email"
     },
     "phone": {
-      "type": "string"
+      "type": "string",
+      "required": true
     },
     "service": {
       "type": "string"
